@@ -19,7 +19,7 @@
 
 <p>
   <img src="https://img.shields.io/github/last-commit/som3a0/Smart-City-Gas-Air-Safety-Monitoring?style=flat-square&color=0FAB7D" />
-  <img src="https://img.shields.io/github/stars/som3a0/Smart-City-Gas-Air-Safety-Monitoring?style=flat-square&color=0FAB7D&t=1"/>
+  <img src="https://img.shields.io/github/stars/som3a0/Smart-City-Gas-Air-Safety-Monitoring?style=flat-square&color=0FAB7D"/>
   <img src="https://img.shields.io/badge/services-9%20containers-047954?style=flat-square" />
   <img src="https://img.shields.io/badge/sensor%20nodes-3%2C000-047954?style=flat-square" />
   <img src="https://img.shields.io/badge/license-MIT-336EA8?style=flat-square" />

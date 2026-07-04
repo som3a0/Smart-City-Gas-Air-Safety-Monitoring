@@ -540,7 +540,7 @@ Full interactive schema: **http://localhost:8000/docs**
 ## 📸 Screenshots
 
 <div align="center">
-  <img src="https://github.com/som3a0/-Smart-City-Gas-Air-Safety-Monitoring/blob/main/assets/screenshot-dashboard.png" />
+    <img src="https://github.com/som3a0/Smart-City-Gas-Air-Safety-Monitoring/blob/main/assets/screenshot-dashboard.png" />
 </div>
 
 ---

@@ -1,0 +1,277 @@
+# ═══════════════════════════════════════════════════════════════
+#  🏙️  Smart City Gas & Air Safety Command Center
+#  Full Stack: Kafka + IoT Producer + Spark + SQL Server + Grafana
+#  + FastAPI Backend + React Command Center Dashboard
+#
+#  URLs:
+#    Command Center  → http://localhost:3001
+#    FastAPI Docs    → http://localhost:8000/docs
+#    Kafka UI        → http://localhost:8080
+#    Spark UI        → http://localhost:4040
+#    Grafana         → http://localhost:3000  (admin / SmartCity@2026)
+#    SQL Server      → localhost:1433         (sa / SmartCity@2026)
+#
+#  Start: docker compose up -d
+#  Stop:  docker compose down
+#  Logs:  docker compose logs -f <service>
+# ═══════════════════════════════════════════════════════════════
+
+services:
+
+  # ─────────────────────────────────────────────────────────────
+  # KAFKA LAYER
+  # ─────────────────────────────────────────────────────────────
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - ./kafka-storage/zookeeper/data:/var/lib/zookeeper/data
+      - ./kafka-storage/zookeeper/logs:/var/lib/zookeeper/log
+    networks:
+      - smartcity-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "2" }
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_NUM_PARTITIONS: 3
+    volumes:
+      - ./kafka-storage/kafka/data:/var/lib/kafka/data
+    networks:
+      - smartcity-net
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:29092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "2" }
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: smartcity-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - smartcity-net
+    logging:
+      driver: "json-file"
+      options: { max-size: "5m", max-file: "2" }
+
+  # ─────────────────────────────────────────────────────────────
+  # IOT PRODUCER
+  # ─────────────────────────────────────────────────────────────
+
+  iot-producer:
+    build:
+      context: ../simulation
+      dockerfile: Dockerfile
+    container_name: iot-producer
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    networks:
+      - smartcity-net
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "2" }
+
+  # ─────────────────────────────────────────────────────────────
+  # SQL SERVER
+  # ─────────────────────────────────────────────────────────────
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    restart: unless-stopped
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "SmartCity@2026"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    networks:
+      - smartcity-net
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P SmartCity@2026 -Q 'SELECT 1' -No 2>/dev/null || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P SmartCity@2026 -Q 'SELECT 1' 2>/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "2" }
+
+  # ─────────────────────────────────────────────────────────────
+  # SPARK
+  # ─────────────────────────────────────────────────────────────
+
+  spark-consumer:
+    build:
+      context: ../spark
+      dockerfile: Dockerfile
+    container_name: spark-consumer
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      sqlserver:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SQLSERVER_HOST: sqlserver
+      SQLSERVER_PORT: "1433"
+      SQLSERVER_DB: SmartCityDB
+      SQLSERVER_USER: sa
+      SQLSERVER_PASSWORD: SmartCity@2026
+    volumes:
+      - spark-data:/opt/spark-data
+    ports:
+      - "4040:4040"
+    networks:
+      - smartcity-net
+    logging:
+      driver: "json-file"
+      options: { max-size: "20m", max-file: "3" }
+
+  # ─────────────────────────────────────────────────────────────
+  # GRAFANA
+  # ─────────────────────────────────────────────────────────────
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: SmartCity@2026
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - smartcity-net
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options: { max-size: "5m", max-file: "2" }
+
+  # ─────────────────────────────────────────────────────────────
+  # FASTAPI BACKEND
+  # ─────────────────────────────────────────────────────────────
+
+  fastapi-backend:
+    build:
+      context: ./custom-dashboard/backend
+      dockerfile: Dockerfile
+    container_name: fastapi-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      SQLSERVER_HOST: sqlserver
+      SQLSERVER_PORT: "1433"
+      SQLSERVER_DB: SmartCityDB
+      SQLSERVER_USER: sa
+      SQLSERVER_PASSWORD: SmartCity@2026
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    networks:
+      - smartcity-net
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "2" }
+
+  # ─────────────────────────────────────────────────────────────
+  # REACT FRONTEND
+  # NOTE: VITE_API_URL is a BUILD ARG — not a runtime ENV
+  # This is intentional: Vite bakes it in at build time
+  # ─────────────────────────────────────────────────────────────
+
+  react-frontend:
+    build:
+      context: ./custom-dashboard/frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
+    container_name: react-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:5173"
+    depends_on:
+      - fastapi-backend
+    networks:
+      - smartcity-net
+    logging:
+      driver: "json-file"
+      options: { max-size: "5m", max-file: "2" }
+
+# ─────────────────────────────────────────────────────────────
+# VOLUMES & NETWORKS
+# ─────────────────────────────────────────────────────────────
+
+volumes:
+  sqlserver-data:
+  spark-data:
+  grafana-data:
+
+networks:
+  smartcity-net:
+    driver: bridge

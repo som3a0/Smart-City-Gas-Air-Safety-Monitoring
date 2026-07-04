@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: SmartCity_SQL
+    type: mssql
+    url: sqlserver:1433
+    database: SmartCityDB
+    user: sa
+    secureJsonData:
+      password: "SmartCity@2026"
+    access: proxy
+    isDefault: true
